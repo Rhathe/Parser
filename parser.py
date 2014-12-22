@@ -4,7 +4,7 @@ import urllib, urllib2
 import sys
 import re,os
 import urlparse
-from urlparse import urljoin
+from urlparse import urljoin,urlparse
 import socket
 from socket import AF_INET, SOCK_DGRAM
 from cookielib import CookieJar
@@ -22,59 +22,68 @@ class Parser:
 		self.fileIndex = 0
 		self.undowloaded = []
 		self.cj = CookieJar()
+		self.domain = None
 		self.opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(self.cj))
 
-	def login(self,login_url,form_params,form_specifier):
+
+	def login(self,**kwargs):
+		self.post_form(**kwargs)
+
+	def post_form(self,pqPage=None,url='',form_params={},selector='',form_check=None):
 		
-		page = self.opener.open(login_url)
-		d = pq(page.read())
+		if not pqPage:
+			pqPage = self.pq_url_open(src=url)
 
 		values = {}
-		selector = ''
-		try:
-			selector = form_specifier['selector'] + ' '
-		except Exception:
-			pass
 
-		forms = d(selector + 'form')
+		forms = pqPage(selector + ' form')
 		form = None
 
 		try:
 			for f in forms:
-				if f.attrib['action'] == form_specifier['action']:
-					form = f;
+				if not form_check:
+					form = f
+				elif form_check(f):
+					form = f
+		except Exception:
+			pass
+
+		try:
+			url = self.get_full_url(form.attrib['action'],url)
 		except Exception:
 			pass
 		
 		try:
 			for input in pq(form).find('input'):
 				try:
-					values[input.name] = input.value
+					values[input.name] = input.value.encode('utf-8')
 				except Exception:
 					pass
 		except Exception:
 			pass
-
-		page.close()
 		
 		for key in form_params:
 			values[key] = form_params[key]
-		
-		login_form = urllib.urlencode(values)	
+	
+		new_form = urllib.urlencode(values)	
 
-		page = self.opener.open(login_url,login_form)
+		page = self.opener.open(url,new_form)
+		ret = page.read()
 		page.close()
-		return page
+		return ret
 
-	def pq_url_open(self,src,type='',headers={}):
-		u = self.url_open(src,type,headers)
+	def pq_url_open(self,**kwargs):
+		u = self.url_open(**kwargs)
 		if (u):
+			if not self.domain:
+				parsed_uri = urlparse(kwargs['src'])
+				self.domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
 			return pq(u)
 		else: 
 			return None
 
 
-	def url_open(self,src,type='',headers={}):
+	def url_open(self,src='',type='',headers={}):
 		
 		try:
 			for key in headers:	
@@ -99,6 +108,13 @@ class Parser:
 
 		return u_src_txt
 
+	def get_full_url(self,url,src=None):
+		if not ("http://" in url or "https://" in url):
+			domain = src or self.domain
+			return urljoin(domain,url)
+		else:
+			return url
+
 	def grab_links(self,d,src,quals):
 		links = []
 		
@@ -118,9 +134,7 @@ class Parser:
 				link = alink.attrib['src']
 
 			if link:
-				if not ("http://" in link or "https://" in link):
-					link = urljoin(src,link)
-				links.append(link)
+				links.append(self.get_full_url(link,src))
 
 		return links
 
