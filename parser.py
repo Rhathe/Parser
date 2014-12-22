@@ -109,22 +109,40 @@ class Parser:
 		return u_src_txt
 
 	def get_full_url(self,url,src=None):
-		if not ("http://" in url or "https://" in url):
+		if not (url.startswith("http://") or url.startswith("https://")):
 			domain = src or self.domain
-			return urljoin(domain,url)
+			if url.startswith("//"):
+				parsed_uri = urlparse(domain)
+				return ('{uri.scheme}:'+url).format(uri=parsed_uri)
+			else:
+				return urljoin(domain,url)
 		else:
 			return url
 
-	def grab_links(self,d,src,quals):
-		links = []
-		
+	def get_a_tags(self,pqPage=None,src=None,quals=None,qualFnc=None):
 		try:
-			alinks = d(quals)
+			alinks = pqPage(quals)
 		except Exception as e:
 			return None
 
 		if alinks is None: 
 			alinks = []
+
+		try:
+			qualLinks = []
+			for link in alinks:
+				if qualFnc(link):
+					qualLinks.append(link)
+			alinks = qualLinks
+		except Exception as e:
+			pass
+
+		return alinks
+
+	def grab_links(self,**kwargs):
+		links = []
+
+		alinks = self.get_a_tags(**kwargs)
 
 		for alink in alinks:
 			link = 0
@@ -134,10 +152,17 @@ class Parser:
 				link = alink.attrib['src']
 
 			if link:
-				links.append(self.get_full_url(link,src))
+				links.append(self.get_full_url(link,kwargs['src']))
 
 		return links
 
+	def get_imgs(self,d,url,quals = '',default_write=None):
+		links = self.grab_links(d,url,quals + ' img')
+		try:
+			for link in links:
+				self.download(link,"IMAGE",'',default_write)
+		except Exception as e:
+			pass
 
 	def sanitize_filename(self,name):
 		return ''.join( c for c in name if c in valid_chars)
@@ -203,15 +228,6 @@ class Parser:
 		if (data is None):
 			return 0
 		return 1 
-
-	def get_imgs(self,d,url,quals = '',default_write=None):
-		links = self.grab_links(d,url,quals + ' img')
-		try:
-			for link in links:
-				self.download(link,"IMAGE",'',default_write)
-		except Exception as e:
-			pass
-			
 
 	def get_next(d,url,quals,index=None):
 		next = d(quals)
